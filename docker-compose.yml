@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  unibus-core-api:
+    build: .
+    container_name: unibus-core-api
+    ports:
+      - "8000:8000"
+    environment:
+      - GEO_API_URL=http://unibus-geo-api:8001
+      - GEO_API_TIMEOUT=10.0
+    volumes:
+      - ./unibus.db:/app/unibus.db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - unibus-network
+
+networks:
+  unibus-network:
+    driver: bridge
