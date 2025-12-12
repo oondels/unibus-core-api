@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 # PostgreSQL database URL from environment variable
 SQLALCHEMY_DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://unibus_user:unibus_pass@localhost:5432/unibus_db"
+    "postgresql://unibus_user:unibus_pass@localhost:5433/unibus_db"
 )
 
 # Create engine for PostgreSQL

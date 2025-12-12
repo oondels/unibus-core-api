@@ -8,7 +8,8 @@ Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo opera�
 - **Gestão de Rotas**: Definição de rotas entre cidades com cálculo automático de distância/duração
 - **Gestão de Viagens**: Agendamento de viagens em rotas com cálculo automático do horário de chegada
 - **Integração Geo-API**: Enriquecimento automático de dados de rotas com distância e duração estimada
-- **Banco SQLite**: Persistência leve com SQLAlchemy ORM
+- **Banco PostgreSQL**: Persistência robusta e escalável com SQLAlchemy ORM
+- **Docker Compose**: PostgreSQL containerizado com volume persistente
 - **Documentação Automática**: OpenAPI/Swagger UI disponível em `/docs`
 - **Validações Robustas**: Pydantic v2 para validação de dados e email único
 - **Tratamento de Erros**: Respostas HTTP apropriadas (400, 404, 422)
@@ -20,9 +21,11 @@ Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo opera�
 - **FastAPI** - Framework web moderno para construção de APIs
 - **SQLAlchemy 2.0** - ORM e toolkit SQL
 - **Pydantic v2** - Validação de dados usando type hints
-- **SQLite** - Banco de dados embutido
+- **PostgreSQL 15** - Banco de dados relacional robusto
+- **psycopg2** - Driver PostgreSQL para Python
 - **httpx** - Cliente HTTP assíncrono para chamadas à geo-api
 - **Uvicorn** - Servidor ASGI de alta performance
+- **Docker & Docker Compose** - Containerização e orquestração
 
 ## 📁 Estrutura do Projeto
 
@@ -150,52 +153,51 @@ Variáveis disponíveis:
 - `GEO_API_URL` - URL da unibus-geo-api (padrão: `http://localhost:8001`)
 - `GEO_API_TIMEOUT` - Timeout em segundos (padrão: `10.0`)
 
-**5. Execute a aplicação**
+**5. Inicie o PostgreSQL (via Docker)**
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+# Opção A: Usar docker-compose (mais fácil)
+docker-compose up -d postgres
+
+# Opção B: Rodar PostgreSQL standalone
+docker run -d \
+  --name postgres-unibus \
+  -e POSTGRES_USER=unibus_user \
+  -e POSTGRES_PASSWORD=unibus_pass \
+  -e POSTGRES_DB=unibus_db \
+  -p 5433:5432 \
+  postgres:15-alpine
 ```
 
-Ou usando o ambiente virtual diretamente:
+**6. Execute a aplicação**
 
 ```bash
+# Definir variável de ambiente do banco
+export DATABASE_URL=postgresql://unibus_user:unibus_pass@localhost:5433/unibus_db
+
+# Rodar aplicação
+uvicorn app.main:app --reload --port 8000
+
+# Ou usando o ambiente virtual diretamente
 .venv/bin/uvicorn app.main:app --reload --port 8000
 ```
 
-**6. Acesse a API**
+**7. Acesse a API**
 
 - **API Base:** http://localhost:8000
 - **Swagger UI (Docs Interativos):** http://localhost:8000/docs
 - **ReDoc (Docs Alternativos):** http://localhost:8000/redoc
 - **Health Check:** http://localhost:8000/health
+- **PostgreSQL:** localhost:5433 (user: unibus_user, pass: unibus_pass, db: unibus_db)
 
 ### 🐳 Deploy com Docker
 
-**Opção 1: Docker simples**
+**Opção 1: Docker Compose (Recomendado)**
+
+Inicia PostgreSQL e a API automaticamente:
 
 ```bash
-# Build da imagem
-docker build -t unibus-core-api:latest .
-
-# Executar container
-docker run -d \
-  --name unibus-core \
-  -p 8000:8000 \
-  -e GEO_API_URL=http://host.docker.internal:8001 \
-  -v $(pwd)/unibus.db:/app/unibus.db \
-  unibus-core-api:latest
-
-# Ver logs
-docker logs -f unibus-core
-
-# Parar e remover
-docker stop unibus-core && docker rm unibus-core
-```
-
-**Opção 2: Docker Compose (recomendado)**
-
-```bash
-# Subir todos os serviços
+# Subir todos os serviços (PostgreSQL + API)
 docker-compose up --build
 
 # Rodar em background
@@ -206,16 +208,50 @@ docker-compose logs -f
 
 # Parar serviços
 docker-compose down
+
+# Parar e remover volumes (apaga dados do banco)
+docker-compose down -v
+```
+
+**Opção 2: Docker simples (requer PostgreSQL externo)**
+
+```bash
+# Build da imagem
+docker build -t unibus-core-api:latest .
+
+# Executar container
+docker run -d \
+  --name unibus-core \
+  -p 8000:8000 \
+  -e DATABASE_URL=postgresql://unibus_user:unibus_pass@host.docker.internal:5432/unibus_db \
+  -e GEO_API_URL=http://host.docker.internal:8001 \
+  unibus-core-api:latest
+
+# Ver logs
+docker logs -f unibus-core
+
+# Parar e remover
+docker stop unibus-core && docker rm unibus-core
 ```
 
 ## ⚙️ Variáveis de Ambiente
 
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
+| `DATABASE_URL` | URL de conexão PostgreSQL | `postgresql://unibus_user:unibus_pass@localhost:5432/unibus_db` |
 | `GEO_API_URL` | URL base da UniBus Geo API | `http://localhost:8001` |
 | `GEO_API_TIMEOUT` | Timeout para requisições à geo-api (segundos) | `10.0` |
 
 **Arquivo `.env.example` fornecido como template.**
+
+### Configuração PostgreSQL (Docker Compose)
+
+| Variável | Valor Padrão | Descrição |
+|----------|--------------|-----------|
+| `POSTGRES_USER` | `unibus_user` | Usuário do banco |
+| `POSTGRES_PASSWORD` | `unibus_pass` | Senha do banco |
+| `POSTGRES_DB` | `unibus_db` | Nome do banco |
+| Porta | `5433:5432` | Porta mapeada (5433 no host → 5432 no container) |
 
 ## 📋 Regras de Negócio
 
@@ -328,7 +364,7 @@ python test_api.py
 
 ## 🗄️ Banco de Dados
 
-A aplicação usa **SQLite** para simplicidade e portabilidade no MVP. O arquivo `unibus.db` é criado automaticamente na raiz do projeto no primeiro startup.
+A aplicação usa **PostgreSQL 15** para persistência robusta e escalável. O banco roda em container Docker com volume persistente.
 
 ### Tabelas Criadas
 
@@ -381,19 +417,42 @@ alembic upgrade head
 
 ### Inspecionar Banco de Dados
 
-```bash
-# Usando SQLite CLI
-sqlite3 unibus.db ".tables"
-sqlite3 unibus.db ".schema students"
+**Via psql (PostgreSQL CLI):**
 
-# Ou use o script Python fornecido
+```bash
+# Conectar ao PostgreSQL no Docker
+docker exec -it unibus-postgres psql -U unibus_user -d unibus_db
+
+# Dentro do psql:
+\dt                    # Listar tabelas
+\d students           # Descrever tabela students
+\d+ routes            # Detalhes completos da tabela routes
+SELECT * FROM students; # Query SQL
+\q                    # Sair
+```
+
+**Via Python (SQLAlchemy):**
+
+```bash
 .venv/bin/python -c "
 from app.db import engine
 from sqlalchemy import inspect
 inspector = inspect(engine)
 print('Tabelas:', inspector.get_table_names())
+for table in inspector.get_table_names():
+    print(f'\n{table}:')
+    for col in inspector.get_columns(table):
+        print(f"  - {col['name']}: {col['type']}")
 "
 ```
+
+**Via pgAdmin ou DBeaver:**
+
+- Host: `localhost`
+- Port: `5433`
+- Database: `unibus_db`
+- User: `unibus_user`
+- Password: `unibus_pass`
 
 ## 🧪 Testes
 
@@ -500,18 +559,27 @@ engine = create_engine(
 
 ### 1. Banco de Dados
 
-**Migrar de SQLite para PostgreSQL:**
+**PostgreSQL em Produção:**
 
 ```python
-# .env
-DATABASE_URL=postgresql://user:password@localhost:5432/unibus
+# Usar serviços gerenciados
+DATABASE_URL=postgresql://user:password@db-host:5432/unibus_prod
 
-# app/db.py
-import os
-from sqlalchemy.ext.asyncio import create_async_engine
+# Opções recomendadas:
+# - AWS RDS PostgreSQL
+# - Azure Database for PostgreSQL
+# - Google Cloud SQL
+# - Supabase
+# - Neon
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_async_engine(DATABASE_URL)
+# Configurações de produção em app/db.py
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=20,          # Conexões no pool
+    max_overflow=10,       # Conexões extras
+    pool_pre_ping=True,    # Verificar conexões
+    pool_recycle=3600      # Reciclar após 1h
+)
 ```
 
 ### 2. Segurança
