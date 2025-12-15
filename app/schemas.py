@@ -6,19 +6,21 @@ from typing import Optional
 class StudentBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     email: EmailStr
-    city: str = Field(..., min_length=1, max_length=100)
 
 
 class StudentCreate(StudentBase):
-    pass
+    cep: str = Field(..., min_length=8, max_length=9, pattern=r'^\d{5}-?\d{3}$')
 
 
 class StudentUpdate(StudentBase):
-    pass
+    cep: str = Field(..., min_length=8, max_length=9, pattern=r'^\d{5}-?\d{3}$')
 
 
 class StudentResponse(StudentBase):
     id: int
+    cep: str
+    city: str
+    city_ibge_code: str
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,30 +1,62 @@
 from datetime import datetime, timedelta
 from typing import Optional
-from app.external import geo_client
+from app.external import validation_client
+from app.viacep import viacep_client
 
 
-async def enrich_route_with_geo_data(
-    origin_city: str, destination_city: str
-) -> dict:
+async def validate_cep(cep: str) -> dict:
     """
-    Chama a geo-api para obter distância e duração de uma rota.
+    Valida CEP e busca informações de cidade usando ViaCEP.
 
-    Retorna:
-        Dicionário com 'distance_km', 'estimated_duration_min' e a flag 'geo_api_available'
+    Args:
+        cep: CEP no formato 12345678 ou 12345-678
+
+    Returns:
+        Dicionário com 'is_valid', 'city', 'city_ibge_code' e 'reason'
     """
-    geo_data = await geo_client.get_distance_and_duration(origin_city, destination_city)
+    address_data = await viacep_client.get_address(cep)
 
-    if geo_data:
+    if address_data and address_data.get("city") and address_data.get("city_ibge_code"):
         return {
-            "distance_km": geo_data.get("distance_km"),
-            "estimated_duration_min": geo_data.get("estimated_duration_min"),
-            "geo_api_available": True,
+            "is_valid": True,
+            "city": address_data["city"],
+            "city_ibge_code": address_data["city_ibge_code"],
+            "state": address_data.get("state"),
+            "reason": "CEP valid",
         }
     else:
         return {
-            "distance_km": None,
-            "estimated_duration_min": None,
-            "geo_api_available": False,
+            "is_valid": False,
+            "city": None,
+            "city_ibge_code": None,
+            "state": None,
+            "reason": "Invalid CEP",
+        }
+
+
+async def validate_student_eligibility(
+    name: str, email: str, registration: str
+) -> dict:
+    """
+    Chama a validation-api para validar elegibilidade do estudante.
+
+    Retorna:
+        Dicionário com 'is_valid', 'reason' e 'validation_api_available'
+    """
+    validation_data = await validation_client.validate_student(name, email, registration)
+
+    if validation_data:
+        return {
+            "is_valid": validation_data.get("is_valid", False),
+            "reason": validation_data.get("reason", "Unknown"),
+            "validation_api_available": True,
+        }
+    else:
+        # Se a API de validação está indisponível, aceita o estudante por padrão
+        return {
+            "is_valid": True,
+            "reason": "Validation API unavailable - student accepted by default",
+            "validation_api_available": False,
         }
 
 

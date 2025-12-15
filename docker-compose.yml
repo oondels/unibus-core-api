@@ -31,8 +31,8 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://unibus_user:unibus_pass@postgres:5432/unibus_db
-      - GEO_API_URL=http://unibus-geo-api:8001
-      - GEO_API_TIMEOUT=10.0
+      - VALIDATION_API_URL=http://student-validation-api:8001
+      - VALIDATION_API_TIMEOUT=10.0
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]

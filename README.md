@@ -1,13 +1,14 @@
 # UniBus Core API 🚌
 
-Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo operações CRUD para estudantes, rotas e viagens com integração à UniBus Geo API para cálculo automático de distância e duração de rotas.
+Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo operações CRUD para estudantes, rotas e viagens com integração à API de Validação de Estudantes.
 
 ## ✨ Funcionalidades
 
-- **Gestão de Estudantes**: Cadastro e gerenciamento de perfis de estudantes
-- **Gestão de Rotas**: Definição de rotas entre cidades com cálculo automático de distância/duração
+- **Gestão de Estudantes**: Cadastro e gerenciamento de perfis de estudantes com validação de elegibilidade
+- **Validação de CEP**: Integração com ViaCEP API (gratuita) para validação automática de endereços
+- **Validação de Estudantes**: Integração com API de validação para verificar email institucional
+- **Gestão de Rotas**: Definição de rotas entre cidades
 - **Gestão de Viagens**: Agendamento de viagens em rotas com cálculo automático do horário de chegada
-- **Integração Geo-API**: Enriquecimento automático de dados de rotas com distância e duração estimada
 - **Banco PostgreSQL**: Persistência robusta e escalável com SQLAlchemy ORM
 - **Docker Compose**: PostgreSQL containerizado com volume persistente
 - **Documentação Automática**: OpenAPI/Swagger UI disponível em `/docs`
@@ -23,7 +24,8 @@ Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo opera�
 - **Pydantic v2** - Validação de dados usando type hints
 - **PostgreSQL 15** - Banco de dados relacional robusto
 - **psycopg2** - Driver PostgreSQL para Python
-- **httpx** - Cliente HTTP assíncrono para chamadas à geo-api
+- **httpx** - Cliente HTTP assíncrono para chamadas às APIs externas
+- **ViaCEP API** - API pública gratuita para validação de CEP
 - **Uvicorn** - Servidor ASGI de alta performance
 - **Docker & Docker Compose** - Containerização e orquestração
 
@@ -38,7 +40,8 @@ unibus-core-api/
 │   ├── models.py            # Models: Student, Route, Trip
 │   ├── schemas.py           # Schemas Pydantic para validação
 │   ├── services.py          # Lógica de negócio e cálculos
-│   ├── external.py          # Cliente HTTP para integração com geo-api
+│   ├── external.py          # Cliente HTTP para integração com validation-api
+│   ├── viacep.py            # Cliente HTTP para integração com ViaCEP API
 │   └── routers/
 │       ├── __init__.py
 │       ├── students.py      # Endpoints CRUD de estudantes
@@ -60,7 +63,9 @@ unibus-core-api/
 - `id`: Chave primária (auto-incremento)
 - `name`: Nome do estudante
 - `email`: Endereço de email (único, com validação)
-- `city`: Cidade do estudante
+- `cep`: Código de Endereçamento Postal (validado via ViaCEP)
+- `city`: Cidade do estudante (auto-preenchido via ViaCEP)
+- `city_ibge_code`: Código IBGE da cidade (auto-preenchido via ViaCEP)
 - `created_at`: Timestamp de registro automático
 
 ### Route (Rota)
@@ -69,8 +74,8 @@ unibus-core-api/
 - `name`: Nome/identificador da rota
 - `origin_city`: Cidade de origem
 - `destination_city`: Cidade de destino
-- `distance_km`: Distância em quilômetros (obtida da geo-api)
-- `estimated_duration_min`: Tempo estimado em minutos (obtido da geo-api)
+- `distance_km`: Distância em quilômetros (opcional, pode ser preenchido manualmente)
+- `estimated_duration_min`: Tempo estimado em minutos (opcional, pode ser preenchido manualmente)
 
 **Relacionamento:** Uma rota pode ter múltiplas viagens (cascade delete)
 
@@ -86,6 +91,585 @@ unibus-core-api/
 **Relacionamento:** Cada viagem pertence a uma rota
 
 ## 🔌 Endpoints da API
+
+### Arquitetura de Integração
+
+O UniBus Core API se integra com o **Student Validation API** para validar a elegibilidade dos estudantes:
+
+```
+┌─────────────────────┐           ┌──────────────────────────┐
+│                     │           │                          │
+│  UniBus Core API    │──────────▶│ Student Validation API   │
+│  (Port 8000)        │  HTTP     │  (Port 8001)             │
+│                     │◀──────────│                          │
+└─────────────────────┘           └──────────────────────────┘
+         │                                    │
+         │                                    │
+         ▼                                    ▼
+┌─────────────────────┐           ┌──────────────────────────┐
+│                     │           │  Validação de Email:     │
+│  PostgreSQL         │           │  - @aluno ou .edu.br     │
+│  (Port 5433)        │           │  Matrícula: >= 6 chars   │
+│                     │           │                          │
+└─────────────────────┘           └──────────────────────────┘
+```
+
+**Fluxo de Validação:**
+
+1. Cliente faz POST `/students` com dados do estudante
+2. Core API chama validation-api com `name`, `email` e `city`
+3. Validation-api verifica:
+   - Email institucional (`@aluno` ou `.edu.br`)
+   - Matrícula válida (>= 6 caracteres)
+4. Se válido: estudante é salvo no banco PostgreSQL
+5. Se inválido: retorna HTTP 400 com mensagem de erro
+6. Se validation-api indisponível: aceita estudante por padrão (fallback)
+
+---
+
+## 📡 API Secundária: Student Validation API
+
+### Visão Geral
+
+O **UniBus Core API** integra-se com a **Student Validation API** (API secundária) para validar a elegibilidade de estudantes antes de cadastrá-los no sistema. Esta integração garante que apenas estudantes com credenciais institucionais válidas possam se registrar na plataforma UniBus.
+
+### Quando é Chamada?
+
+A validation-api é chamada **exclusivamente** no momento da **criação de um novo estudante**:
+
+| Endpoint | Método | Quando Chama API Secundária | Motivo |
+|----------|--------|----------------------------|--------|
+| `POST /students` | CREATE | ✅ **Sempre** (antes de salvar no banco) | Validar elegibilidade do estudante |
+| `PUT /students/{id}` | UPDATE | ❌ Nunca | Atualização não requer revalidação |
+| `GET /students` | LIST | ❌ Nunca | Apenas consulta dados existentes |
+| `GET /students/{id}` | READ | ❌ Nunca | Apenas consulta dados existentes |
+| `DELETE /students/{id}` | DELETE | ❌ Nunca | Remoção não requer validação |
+
+**⚠️ Importante:** A validação ocorre **apenas uma vez**, no momento do cadastro inicial. Atualizações posteriores não acionam nova validação.
+
+### Por Que é Chamada?
+
+#### 🎯 Objetivo Principal
+Garantir que **apenas estudantes com email institucional válido** possam se cadastrar no sistema UniBus, cumprindo os requisitos do projeto universitário.
+
+#### 📋 Critérios de Validação
+
+A validation-api verifica:
+
+1. **Email Institucional**: O email deve conter um dos seguintes padrões:
+   - `@aluno` (ex: `maria@aluno.puc.br`, `joao@aluno.ufrj.br`)
+   - `.edu.br` (ex: `pedro@estudante.edu.br`)
+
+2. **Matrícula Válida**: O campo `registration` (mapeado do campo `city`) deve ter:
+   - Pelo menos **6 caracteres**
+
+#### ✅ Exemplos de Emails Válidos
+```
+✓ maria@aluno.puc-rio.br
+✓ joao@aluno.ufrj.br
+✓ pedro.silva@edu.br
+✓ ana@estudante.edu.br
+```
+
+#### ❌ Exemplos de Emails Inválidos
+```
+✗ joao@gmail.com          → Não é institucional
+✗ maria@hotmail.com       → Não é institucional
+✗ pedro@empresa.com.br    → Não contém @aluno nem .edu.br
+```
+
+### Especificação Técnica
+
+#### Endpoint da Validation API
+
+```http
+POST http://localhost:8001/validate-student
+Content-Type: application/json
+```
+
+#### Request Payload
+
+```json
+{
+  "name": "Maria Silva",
+  "email": "maria@aluno.puc.br",
+  "registration": "Rio de Janeiro"
+}
+```
+
+**Nota:** O campo `registration` é preenchido com o valor do campo `city` do estudante.
+
+#### Response - Estudante Válido (200 OK)
+
+```json
+{
+  "is_valid": true,
+  "reason": "Email and registration are valid"
+}
+```
+
+#### Response - Estudante Inválido (200 OK)
+
+```json
+{
+  "is_valid": false,
+  "reason": "Email must contain @aluno or .edu.br"
+}
+```
+
+ou
+
+```json
+{
+  "is_valid": false,
+  "reason": "Registration must be at least 6 characters"
+}
+```
+
+### Tratamento de Erros e Fallback
+
+#### 🔄 Estratégia de Fallback
+
+Se a **validation-api estiver indisponível** (timeout, connection error, 5xx), o UniBus Core API implementa uma estratégia de fallback:
+
+```
+Validation API Offline → Aceita Estudante por Padrão → HTTP 201 Created
+```
+
+**Motivo:** Garantir disponibilidade do sistema mesmo quando a API secundária estiver fora do ar.
+
+#### 📊 Comportamento por Cenário
+
+| Cenário | Validation API Status | Core API Comportamento | HTTP Response |
+|---------|----------------------|------------------------|---------------|
+| Email válido | ✅ Online | Salva no banco | `201 Created` |
+| Email inválido | ✅ Online | **Não salva** no banco | `400 Bad Request` |
+| API offline/timeout | ❌ Offline | Salva no banco (fallback) | `201 Created` |
+| API retorna 5xx | ❌ Error | Salva no banco (fallback) | `201 Created` |
+
+#### Implementação do Fallback
+
+```python
+# Em app/services.py
+async def validate_student_eligibility(name: str, email: str, city: str) -> dict:
+    validation_data = await validation_client.validate_student(name, email, city)
+    
+    if validation_data:
+        return {
+            "is_valid": validation_data.get("is_valid", False),
+            "reason": validation_data.get("reason", "Unknown"),
+            "validation_api_available": True,
+        }
+    else:
+        # Fallback: aceita estudante se API estiver offline
+        return {
+            "is_valid": True,
+            "reason": "Validation API unavailable - student accepted by default",
+            "validation_api_available": False,
+        }
+```
+
+### Exemplo de Uso Completo
+
+#### 1. Estudante Válido (Email Institucional)
+
+```bash
+curl -X POST "http://localhost:8000/students" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Ana Costa",
+    "email": "ana@aluno.puc.br",
+    "city": "Rio de Janeiro"
+  }'
+```
+
+**Sequência de Eventos:**
+1. Core API recebe requisição
+2. Valida schema Pydantic (formato de email)
+3. **Chama validation-api**: `POST http://localhost:8001/validate-student`
+4. Validation-api retorna: `{"is_valid": true, "reason": "..."}`
+5. Core API salva estudante no PostgreSQL
+6. Retorna: `201 Created` com dados do estudante
+
+**Response:**
+```json
+{
+  "id": 1,
+  "name": "Ana Costa",
+  "email": "ana@aluno.puc.br",
+  "city": "Rio de Janeiro",
+  "created_at": "2025-12-15T10:30:00"
+}
+```
+
+#### 2. Estudante Inválido (Email Comum)
+
+```bash
+curl -X POST "http://localhost:8000/students" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "João Santos",
+    "email": "joao@gmail.com",
+    "city": "São Paulo"
+  }'
+```
+
+**Sequência de Eventos:**
+1. Core API recebe requisição
+2. Valida schema Pydantic ✅
+3. **Chama validation-api**: `POST http://localhost:8001/validate-student`
+4. Validation-api retorna: `{"is_valid": false, "reason": "Email must contain @aluno or .edu.br"}`
+5. Core API **não salva** no banco
+6. Retorna: `400 Bad Request` com motivo da rejeição
+
+**Response:**
+```json
+{
+  "detail": "Student validation failed: Email must contain @aluno or .edu.br"
+}
+```
+
+#### 3. Validation API Offline (Fallback)
+
+```bash
+# Simular API offline (desligar validation-api)
+curl -X POST "http://localhost:8000/students" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Pedro Oliveira",
+    "email": "pedro@exemplo.com",
+    "city": "Brasília"
+  }'
+```
+
+**Sequência de Eventos:**
+1. Core API recebe requisição
+2. Valida schema Pydantic ✅
+3. **Tenta chamar validation-api**: timeout/connection error
+4. Fallback ativado: `{"is_valid": true, "reason": "Validation API unavailable..."}`
+5. Core API salva estudante no PostgreSQL (aceita por padrão)
+6. Retorna: `201 Created`
+
+**Response:**
+```json
+{
+  "id": 2,
+  "name": "Pedro Oliveira",
+  "email": "pedro@exemplo.com",
+  "city": "Brasília",
+  "created_at": "2025-12-15T10:35:00"
+}
+```
+
+### Configuração
+
+#### Variáveis de Ambiente
+
+```bash
+# .env
+VALIDATION_API_URL=http://localhost:8001
+VALIDATION_API_TIMEOUT=10.0
+```
+
+#### Docker Compose
+
+```yaml
+services:
+  unibus-core-api:
+    environment:
+      - VALIDATION_API_URL=http://student-validation-api:8001
+      - VALIDATION_API_TIMEOUT=10.0
+```
+
+### Logs e Debugging
+
+Para verificar as chamadas à validation-api, monitore os logs:
+
+```bash
+# Ver logs do Core API
+docker-compose logs -f unibus-core-api
+
+# Exemplos de logs
+INFO: Calling validation-api for student: maria@aluno.puc.br
+INFO: Validation successful: is_valid=True
+ERROR: Validation-API unavailable, using fallback
+```
+
+### Health Check da Validation API
+
+Verifique se a validation-api está disponível:
+
+```bash
+curl http://localhost:8001/health
+```
+
+**Response esperado:**
+```json
+{
+  "status": "healthy",
+  "service": "student-validation-api"
+}
+```
+
+---
+
+## 🌐 API Pública de Terceiros: ViaCEP
+
+### Visão Geral
+
+O **UniBus Core API** integra-se com a **ViaCEP** - uma API **pública e gratuita** mantida pela comunidade brasileira para consulta de informações de endereços através do CEP (Código de Endereçamento Postal).
+
+**URL da API:** https://viacep.com.br/
+
+**Licença:** Gratuita e de uso livre  
+**Documentação oficial:** https://viacep.com.br/
+
+### Por Que é Usada?
+
+A ViaCEP é utilizada para **validar e normalizar dados de localização** dos estudantes durante o cadastro. Em vez de permitir entrada manual de cidade (sujeita a erros de digitação e inconsistências), o sistema:
+
+1. ✅ **Garante que o CEP existe** antes de aceitar o cadastro
+2. ✅ **Normaliza o nome da cidade** usando dados oficiais dos Correios
+3. ✅ **Obtém automaticamente o código IBGE** da cidade
+4. ✅ **Previne dados inconsistentes** (ex: "Rio", "RJ", "Rio de Janeiro" seriam normalizados para "Rio de Janeiro")
+5. ✅ **Enriquece o cadastro** com informações oficiais sem custo adicional
+
+### Como é Usada?
+
+A ViaCEP é chamada **exclusivamente** durante a **criação e atualização de estudantes**:
+
+| Endpoint | Método | Quando Chama ViaCEP | Motivo |
+|----------|--------|---------------------|--------|
+| `POST /students` | CREATE | ✅ **Sempre** (antes de validar elegibilidade) | Validar CEP e obter cidade + código IBGE |
+| `PUT /students/{id}` | UPDATE | ✅ **Sempre** (antes de atualizar) | Revalidar CEP e atualizar localização |
+| `GET /students` | LIST | ❌ Nunca | Apenas consulta dados já persistidos |
+| `GET /students/{id}` | READ | ❌ Nunca | Apenas consulta dados já persistidos |
+| `DELETE /students/{id}` | DELETE | ❌ Nunca | Remoção não requer validação |
+
+### Especificação Técnica
+
+#### Endpoint Consultado
+
+```http
+GET https://viacep.com.br/ws/{cep}/json/
+```
+
+**Exemplo de Request:**
+```bash
+GET https://viacep.com.br/ws/20040020/json/
+```
+
+#### Response - CEP Válido (200 OK)
+
+```json
+{
+  "cep": "20040-020",
+  "logradouro": "Praça Floriano",
+  "complemento": "- lado ímpar",
+  "bairro": "Centro",
+  "localidade": "Rio de Janeiro",
+  "uf": "RJ",
+  "ibge": "3304557",
+  "gia": "",
+  "ddd": "21",
+  "siafi": "6001"
+}
+```
+
+**Campos utilizados pelo UniBus:**
+- `localidade` → Armazenado como `city`
+- `ibge` → Armazenado como `city_ibge_code`
+- `cep` → Armazenado como `cep` (formatado)
+
+#### Response - CEP Inválido (200 OK)
+
+```json
+{
+  "erro": true
+}
+```
+
+Quando a ViaCEP retorna `{"erro": true}`, o UniBus rejeita o cadastro com **HTTP 400 Bad Request**.
+
+### Fluxo de Integração
+
+**Sequência ao criar um estudante:**
+
+```
+1. Cliente envia: name, email, cep
+   ↓
+2. UniBus valida formato do CEP (regex Pydantic)
+   ↓
+3. UniBus chama ViaCEP: GET https://viacep.com.br/ws/{cep}/json/
+   ↓
+4a. CEP válido → ViaCEP retorna dados
+    → UniBus extrai: city (localidade) + city_ibge_code (ibge)
+    → Continua para validação de elegibilidade (validation-api)
+    ↓
+4b. CEP inválido → ViaCEP retorna {"erro": true}
+    → UniBus retorna HTTP 400: "Invalid CEP"
+    → Cadastro abortado
+```
+
+### Exemplo de Uso Completo
+
+#### Criar Estudante com CEP Válido
+
+```bash
+curl -X POST "http://localhost:8000/students" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Maria Silva",
+    "email": "maria@aluno.puc.br",
+    "cep": "20040-020"
+  }'
+```
+
+**Processamento Interno:**
+
+1. Pydantic valida formato do CEP: `20040-020` ✅
+2. ViaCEP consultado: `GET https://viacep.com.br/ws/20040020/json/`
+3. ViaCEP retorna:
+   ```json
+   {
+     "localidade": "Rio de Janeiro",
+     "ibge": "3304557",
+     "uf": "RJ"
+   }
+   ```
+4. Validation-api consultada com `registration: "20040020"` ✅
+5. Estudante salvo no banco:
+
+**Response (201 Created):**
+```json
+{
+  "id": 1,
+  "name": "Maria Silva",
+  "email": "maria@aluno.puc.br",
+  "cep": "20040-020",
+  "city": "Rio de Janeiro",
+  "city_ibge_code": "3304557",
+  "created_at": "2025-12-15T14:30:00"
+}
+```
+
+#### Criar Estudante com CEP Inválido
+
+```bash
+curl -X POST "http://localhost:8000/students" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "João Santos",
+    "email": "joao@aluno.ufrj.br",
+    "cep": "99999-999"
+  }'
+```
+
+**Processamento Interno:**
+
+1. Pydantic valida formato: `99999-999` ✅
+2. ViaCEP consultado: `GET https://viacep.com.br/ws/99999999/json/`
+3. ViaCEP retorna: `{"erro": true}` ❌
+4. UniBus aborta o cadastro
+
+**Response (400 Bad Request):**
+```json
+{
+  "detail": "Invalid CEP: Invalid CEP"
+}
+```
+
+### Tratamento de Erros
+
+| Cenário | Comportamento UniBus | HTTP Status |
+|---------|---------------------|-------------|
+| CEP válido e encontrado | Continua com cadastro | - |
+| CEP não encontrado (erro: true) | Rejeita cadastro | `400 Bad Request` |
+| ViaCEP timeout (10s) | Rejeita cadastro | `400 Bad Request` |
+| ViaCEP offline/indisponível | Rejeita cadastro | `400 Bad Request` |
+| CEP com formato inválido | Rejeita antes de chamar API | `422 Unprocessable Entity` |
+
+**⚠️ Importante:** Diferente da Validation-API (que tem fallback), a **ViaCEP não possui fallback**. Se a API estiver indisponível, o cadastro é rejeitado, pois a localização é considerada **informação crítica** para o sistema UniBus.
+
+### Implementação Técnica
+
+**Módulo dedicado:** `app/viacep.py`
+
+```python
+class ViaCEPClient:
+    base_url = "https://viacep.com.br/ws"
+    timeout = 10.0  # 10 segundos
+
+    async def get_address(self, cep: str) -> Optional[Dict[str, Any]]:
+        """
+        Busca informações de endereço pelo CEP.
+        
+        Returns:
+            Dict com city, city_ibge_code, state, etc.
+            ou None se CEP inválido/erro
+        """
+```
+
+**Configuração:**
+- Timeout: 10 segundos
+- Método: GET assíncrono (httpx.AsyncClient)
+- Tratamento: TimeoutException, RequestError, parsing errors
+- Sem autenticação (API pública)
+
+### Vantagens da Integração
+
+✅ **Gratuita:** Sem custos ou limites de requisições  
+✅ **Confiável:** Dados oficiais dos Correios  
+✅ **Simples:** API RESTful sem autenticação  
+✅ **Completa:** Retorna dados estruturados e padronizados  
+✅ **Mantida:** Projeto ativo com suporte da comunidade  
+✅ **Sem Cadastro:** Não requer API key ou registro prévio  
+
+### Limitações e Considerações
+
+⚠️ **Sem SLA oficial:** API comunitária sem garantias de uptime  
+⚠️ **Dependência externa:** Cadastro de estudantes depende da disponibilidade da API  
+⚠️ **Apenas Brasil:** Válido apenas para CEPs brasileiros  
+⚠️ **Sem fallback:** Se a API estiver offline, cadastros são bloqueados  
+
+**Mitigação:** Para ambientes de produção críticos, considere:
+- Cache de CEPs consultados (Redis)
+- Retry automático com backoff exponencial
+- Monitoramento de disponibilidade da API
+- Plano de contingência (banco de dados local de CEPs)
+
+### CEPs de Teste
+
+Para testes e desenvolvimento, use CEPs válidos:
+
+| CEP | Cidade | Estado | IBGE |
+|-----|--------|--------|------|
+| `20040-020` | Rio de Janeiro | RJ | 3304557 |
+| `01310-100` | São Paulo | SP | 3550308 |
+| `30190-001` | Belo Horizonte | MG | 3106200 |
+| `40020-000` | Salvador | BA | 2927408 |
+| `70040-902` | Brasília | DF | 5300108 |
+
+### Alternativas Consideradas
+
+Durante o planejamento do MVP, outras opções foram avaliadas:
+
+| API | Status | Motivo da Não Escolha |
+|-----|--------|----------------------|
+| BrasilAPI | ❌ | Menos popular, menor documentação |
+| CEPAberto | ❌ | Requer cadastro e API key |
+| Google Maps API | ❌ | Paga, exige configuração complexa |
+| Postmon | ❌ | Projeto descontinuado |
+| **ViaCEP** | ✅ **Escolhida** | Gratuita, simples, confiável, bem documentada |
+
+### Recursos Adicionais
+
+- 📖 **Documentação oficial:** https://viacep.com.br/
+- 🐙 **Repositório GitHub:** https://github.com/IgorHalfeld/viacep
+- 📊 **Status da API:** Sem página oficial de status
+- 💬 **Suporte:** Comunidade via GitHub Issues
+
+---
 
 ### Health Check
 
@@ -104,8 +688,8 @@ unibus-core-api/
 
 - `GET /routes` - Listar todas as rotas (com paginação)
 - `GET /routes/{id}` - Buscar rota por ID
-- `POST /routes` - Criar nova rota (chama geo-api automaticamente)
-- `PUT /routes/{id}` - Atualizar rota (atualiza dados da geo-api)
+- `POST /routes` - Criar nova rota
+- `PUT /routes/{id}` - Atualizar rota
 - `DELETE /routes/{id}` - Remover rota (cascade delete trips)
 
 ### Trips (Viagens)
@@ -150,8 +734,8 @@ cp .env.example .env
 ```
 
 Variáveis disponíveis:
-- `GEO_API_URL` - URL da unibus-geo-api (padrão: `http://localhost:8001`)
-- `GEO_API_TIMEOUT` - Timeout em segundos (padrão: `10.0`)
+- `VALIDATION_API_URL` - URL da student-validation-api (padrão: `http://localhost:8001`)
+- `VALIDATION_API_TIMEOUT` - Timeout em segundos (padrão: `10.0`)
 
 **5. Inicie o PostgreSQL (via Docker)**
 
@@ -224,7 +808,7 @@ docker run -d \
   --name unibus-core \
   -p 8000:8000 \
   -e DATABASE_URL=postgresql://unibus_user:unibus_pass@host.docker.internal:5432/unibus_db \
-  -e GEO_API_URL=http://host.docker.internal:8001 \
+  -e VALIDATION_API_URL=http://host.docker.internal:8001 \
   unibus-core-api:latest
 
 # Ver logs
@@ -239,8 +823,8 @@ docker stop unibus-core && docker rm unibus-core
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
 | `DATABASE_URL` | URL de conexão PostgreSQL | `postgresql://unibus_user:unibus_pass@localhost:5432/unibus_db` |
-| `GEO_API_URL` | URL base da UniBus Geo API | `http://localhost:8001` |
-| `GEO_API_TIMEOUT` | Timeout para requisições à geo-api (segundos) | `10.0` |
+| `VALIDATION_API_URL` | URL base da Student Validation API | `http://localhost:8001` |
+| `VALIDATION_API_TIMEOUT` | Timeout para requisições à validation-api (segundos) | `10.0` |
 
 **Arquivo `.env.example` fornecido como template.**
 
@@ -255,11 +839,48 @@ docker stop unibus-core && docker rm unibus-core
 
 ## 📋 Regras de Negócio
 
+### Criação de Estudantes
+
+O processo de criação de estudantes envolve **duas validações em APIs externas**:
+
+#### 1. Validação de CEP (ViaCEP - API Pública Gratuita)
+
+1. **Validação de formato:** Pydantic valida que o CEP segue o padrão `12345-678` ou `12345678`
+2. **Consulta à ViaCEP:** Sistema consulta `https://viacep.com.br/ws/{cep}/json/`
+3. **CEP válido:** Extrai `city` (localidade) e `city_ibge_code` (IBGE) automaticamente
+4. **CEP inválido:** Retorna HTTP 400 (Bad Request) com mensagem "Invalid CEP"
+5. **ViaCEP offline:** Retorna HTTP 400 (sem fallback - localização é crítica)
+
+#### 2. Validação de Elegibilidade (Validation API)
+
+1. **Chamada automática:** Após validar CEP, chama validation-api passando `name`, `email` e `cep` (como registration)
+2. **Sucesso (estudante válido):** Retorna HTTP 201 (Created) com dados completos
+3. **Falha (estudante inválido):** Retorna HTTP 400 (Bad Request) com motivo da rejeição
+4. **Fallback (validation-api offline):** Aceita estudante por padrão e retorna HTTP 201
+
+**Regras de validação na validation-api:**
+- Email institucional: deve conter `@aluno` ou `.edu.br`
+- Registration (CEP): deve ter pelo menos 6 caracteres (CEPs sempre têm 8 dígitos, então sempre passa)
+
+**Fluxo completo:**
+```
+POST /students (name, email, cep)
+  ↓
+1. Validação Pydantic (formato)
+  ↓
+2. ViaCEP: valida CEP → extrai city + city_ibge_code
+  ↓
+3. Validation API: valida email institucional
+  ↓
+4. Salva no PostgreSQL com dados normalizados
+  ↓
+Retorna HTTP 201 com estudante completo
+```
+
 ### Criação/Atualização de Rotas
 
-1. **Chamada automática à geo-api:** Ao criar ou atualizar uma rota, o sistema automaticamente chama `POST /distance` na geo-api passando `origin_city` e `destination_city`
-2. **Sucesso (geo-api disponível):** Retorna HTTP 201 (Created) com `distance_km` e `estimated_duration_min` preenchidos
-3. **Falha (geo-api indisponível):** Salva a rota com valores `null` para distância/duração e retorna HTTP 202 (Accepted) com mensagem de aviso
+1. **Campos opcionais:** `distance_km` e `estimated_duration_min` são opcionais e podem ser preenchidos manualmente
+2. **Validação de cidades:** `origin_city` e `destination_city` são obrigatórios
 
 ### Criação de Viagens
 
@@ -282,15 +903,15 @@ docker stop unibus-core && docker rm unibus-core
 
 ## 📡 Exemplos de Uso
 
-### Criar um Estudante
+### Criar um Estudante (com CEP)
 
 ```bash
 curl -X POST "http://localhost:8000/students" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "João Silva",
-    "email": "joao.silva@example.com",
-    "city": "Rio de Janeiro"
+    "email": "joao.silva@aluno.puc.br",
+    "cep": "20040-020"
   }'
 ```
 
@@ -299,13 +920,17 @@ curl -X POST "http://localhost:8000/students" \
 {
   "id": 1,
   "name": "João Silva",
-  "email": "joao.silva@example.com",
+  "email": "joao.silva@aluno.puc.br",
+  "cep": "20040-020",
   "city": "Rio de Janeiro",
-  "created_at": "2025-12-12T12:00:00"
+  "city_ibge_code": "3304557",
+  "created_at": "2025-12-15T12:00:00"
 }
 ```
 
-### Criar uma Rota (com enriquecimento via geo-api)
+**Nota:** Os campos `city` e `city_ibge_code` são automaticamente preenchidos pela integração com ViaCEP.
+
+### Criar uma Rota
 
 ```bash
 curl -X POST "http://localhost:8000/routes" \
@@ -317,15 +942,15 @@ curl -X POST "http://localhost:8000/routes" \
   }'
 ```
 
-**Resposta (201 Created se geo-api disponível):**
+**Resposta (201 Created):**
 ```json
 {
   "id": 1,
   "name": "Rio - São Paulo Express",
   "origin_city": "Rio de Janeiro",
   "destination_city": "São Paulo",
-  "distance_km": 430.5,
-  "estimated_duration_min": 360
+  "distance_km": null,
+  "estimated_duration_min": null
 }
 ```
 
@@ -374,7 +999,9 @@ CREATE TABLE students (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR NOT NULL,
     email VARCHAR UNIQUE NOT NULL,
+    cep VARCHAR NOT NULL,
     city VARCHAR NOT NULL,
+    city_ibge_code VARCHAR NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -475,7 +1102,7 @@ O script testa:
 - Health check
 - Criação de estudante
 - Listagem de estudantes
-- Criação de rota (com chamada à geo-api)
+- Criação de rota
 - Criação de viagem
 - Listagem de viagens
 
@@ -524,7 +1151,7 @@ A API retorna códigos de status HTTP padrão:
 |--------|-------------|-----|
 | `200 OK` | Sucesso | GET, PUT bem-sucedidos |
 | `201 Created` | Criado | POST bem-sucedido |
-| `202 Accepted` | Aceito parcialmente | Rota criada mas geo-api indisponível |
+
 | `204 No Content` | Sem conteúdo | DELETE bem-sucedido |
 | `400 Bad Request` | Erro de validação | Email duplicado, FK inválida |
 | `404 Not Found` | Não encontrado | Recurso não existe |
