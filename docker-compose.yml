@@ -31,7 +31,7 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgresql://unibus_user:unibus_pass@postgres:5432/unibus_db
-      - VALIDATION_API_URL=http://student-validation-api:8001
+      - VALIDATION_API_URL=http://unibus-validation-api:8001
       - VALIDATION_API_TIMEOUT=10.0
     restart: unless-stopped
     healthcheck:
@@ -43,17 +43,22 @@ services:
     networks:
       - unibus-network
 
-  # Uncomment when unibus-geo-api is available
-  # unibus-geo-api:
-  #   image: unibus-geo-api:latest
-  #   container_name: unibus-geo-api
-  #   ports:
-  #     - "8001:8001"
-  #   networks:
-  #     - unibus-network
+  unibus-validation-api:
+    image: oeendel/unibus-pucrio:latest
+    container_name: unibus-validation-api
+    ports:
+      - "8001:8001"
+    volumes:
+      - validation_db_data:/app/data
+    environment:
+      - DATABASE_URL=sqlite:////app/data/students.db
+    networks:
+      - unibus-network
 
 volumes:
   postgres_data:
+    driver: local
+  validation_db_data:
     driver: local
 
 networks:
