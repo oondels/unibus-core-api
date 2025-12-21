@@ -29,6 +29,82 @@ Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo opera�
 - **Uvicorn** - Servidor ASGI de alta performance
 - **Docker & Docker Compose** - Containerização e orquestração
 
+## 🏗️ Arquitetura do Sistema
+
+A arquitetura do UniBus segue o **Cenário 2** do guia do MVP: **API Principal → API Secundária → API Externa**. Este modelo garante modularidade, separação de responsabilidades e escalabilidade independente de cada componente.
+
+```mermaid
+graph TB
+    subgraph "Cliente"
+        CLIENT[🖥️ Cliente HTTP/Frontend]
+    end
+    
+    subgraph "UniBus Core API (Porta 8000)"
+        CORE[🚌 FastAPI Core API]
+        CORE_DB[(🐘 PostgreSQL<br/>Core Database<br/>Port 5433)]
+    end
+    
+    subgraph "UniBus Validation API (Porta 8001)"
+        VALIDATION[✅ FastAPI Validation API]
+        VALIDATION_DB[(💾 SQLite<br/>Validation Database)]
+    end
+    
+    subgraph "Serviços Externos"
+        VIACEP[🌐 ViaCEP API<br/>https://viacep.com.br]
+    end
+    
+    CLIENT -->|1. POST /students| CORE
+    CORE -->|2. GET /ws/{cep}/json| VIACEP
+    VIACEP -->|3. Dados do CEP| CORE
+    CORE -->|4. POST /validate-student| VALIDATION
+    VALIDATION -->|5. Resultado validação| CORE
+    CORE -->|6. Salva estudante| CORE_DB
+    CORE -->|7. HTTP 201 Created| CLIENT
+    
+    VALIDATION -.->|Consulta regras| VALIDATION_DB
+    
+    style CORE fill:#4CAF50,stroke:#2E7D32,color:#fff
+    style VALIDATION fill:#2196F3,stroke:#1565C0,color:#fff
+    style VIACEP fill:#FF9800,stroke:#E65100,color:#fff
+    style CORE_DB fill:#00897B,stroke:#004D40,color:#fff
+    style VALIDATION_DB fill:#5C6BC0,stroke:#283593,color:#fff
+    style CLIENT fill:#9E9E9E,stroke:#424242,color:#fff
+```
+
+### Fluxo de Criação de Estudante
+
+Quando um novo estudante é criado via `POST /students`, o sistema executa o seguinte fluxo:
+
+1. **Cliente** envia dados do estudante (nome, email, CEP) para o **UniBus Core API**
+2. **Core API** consulta a **ViaCEP API** (serviço externo HTTPS) para validar o CEP e obter informações de endereço
+3. **ViaCEP** retorna dados oficiais: cidade, código IBGE, estado
+4. **Core API** consulta a **UniBus Validation API** (API secundária) para verificar se o email é institucional
+5. **Validation API** valida o email (deve conter `@aluno` ou `.edu.br`) e matrícula (mínimo 6 caracteres)
+6. Se todas as validações forem bem-sucedidas, o **Core API** salva o estudante no **PostgreSQL**
+7. **Core API** retorna `HTTP 201 Created` ao cliente com os dados do estudante cadastrado
+
+### Autonomia dos Serviços
+
+Cada componente da arquitetura possui **total autonomia e independência**:
+
+| Componente | Banco de Dados | Containerização | Porta |
+|------------|----------------|-----------------|-------|
+| **UniBus Core API** | PostgreSQL (persistente) | `Dockerfile` próprio | 8000 |
+| **UniBus Validation API** | SQLite (local) | `Dockerfile` próprio | 8001 |
+| **ViaCEP API** | N/A (serviço externo) | N/A | 443 (HTTPS) |
+
+**Benefícios desta arquitetura:**
+- ✅ **Escalabilidade independente**: Cada serviço pode ser escalado separadamente
+- ✅ **Desenvolvimento desacoplado**: Equipes podem trabalhar em paralelo
+- ✅ **Resiliência**: Falha em um serviço não derruba o sistema completo (fallback implementado)
+- ✅ **Manutenção simplificada**: Alterações em um serviço não afetam os demais
+- ✅ **Testabilidade**: Cada componente pode ser testado isoladamente
+
+### Estratégia de Fallback
+
+- **ViaCEP indisponível**: Cadastro é **rejeitado** (CEP é informação crítica)
+- **Validation API indisponível**: Estudante é **aceito por padrão** (garante disponibilidade do sistema)
+
 ## 📁 Estrutura do Projeto
 
 ```plaintext
