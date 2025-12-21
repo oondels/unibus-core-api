@@ -2,7 +2,7 @@
 
 Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo operações CRUD para estudantes, rotas e viagens com integração à API de Validação de Estudantes.
 
-## ✨ Funcionalidades
+## Funcionalidades
 
 - **Gestão de Estudantes**: Cadastro e gerenciamento de perfis de estudantes com validação de elegibilidade
 - **Validação de CEP**: Integração com ViaCEP API (gratuita) para validação automática de endereços
@@ -16,7 +16,7 @@ Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo opera�
 - **Tratamento de Erros**: Respostas HTTP apropriadas (400, 404, 422)
 - **CORS Configurado**: Pronto para integração com frontends
 
-## 🛠️ Stack Tecnológico
+## Stack Tecnológico
 
 - **Python 3.11** - Linguagem base
 - **FastAPI** - Framework web moderno para construção de APIs
@@ -29,28 +29,28 @@ Microserviço minimalista em FastAPI para a plataforma UniBus, fornecendo opera�
 - **Uvicorn** - Servidor ASGI de alta performance
 - **Docker & Docker Compose** - Containerização e orquestração
 
-## 🏗️ Arquitetura do Sistema
+## Arquitetura do Sistema
 
 A arquitetura do UniBus segue o **Cenário 2** do guia do MVP: **API Principal → API Secundária → API Externa**. Este modelo garante modularidade, separação de responsabilidades e escalabilidade independente de cada componente.
 
 ```mermaid
 graph TB
     subgraph "Cliente"
-        CLIENT[🖥️ Cliente HTTP/Frontend]
+        CLIENT[Cliente HTTP/Frontend]
     end
     
     subgraph "UniBus Core API (Porta 8000)"
-        CORE[🚌 FastAPI Core API]
+        CORE[FastAPI Core API]
         CORE_DB[(🐘 PostgreSQL<br/>Core Database<br/>Port 5433)]
     end
     
     subgraph "UniBus Validation API (Porta 8001)"
-        VALIDATION[✅ FastAPI Validation API]
-        VALIDATION_DB[(💾 SQLite<br/>Validation Database)]
+        VALIDATION[FastAPI Validation API]
+        VALIDATION_DB[(SQLite<br/>Validation Database)]
     end
     
     subgraph "Serviços Externos"
-        VIACEP[🌐 ViaCEP API<br/>https://viacep.com.br]
+        VIACEP[ViaCEP API<br/>https://viacep.com.br]
     end
     
     CLIENT -->|1. POST /students| CORE
@@ -105,7 +105,7 @@ Cada componente da arquitetura possui **total autonomia e independência**:
 - **ViaCEP indisponível**: Cadastro é **rejeitado** (CEP é informação crítica)
 - **Validation API indisponível**: Estudante é **aceito por padrão** (garante disponibilidade do sistema)
 
-## 📁 Estrutura do Projeto
+## Estrutura do Projeto
 
 ```plaintext
 unibus-core-api/
@@ -132,7 +132,7 @@ unibus-core-api/
 └── README.md               # Documentação
 ```
 
-## 📊 Modelos de Dados
+## Modelos de Dados
 
 ### Student (Estudante)
 
@@ -221,14 +221,14 @@ A validation-api é chamada **exclusivamente** no momento da **criação de um n
 | `GET /students/{id}` | READ | ❌ Nunca | Apenas consulta dados existentes |
 | `DELETE /students/{id}` | DELETE | ❌ Nunca | Remoção não requer validação |
 
-**⚠️ Importante:** A validação ocorre **apenas uma vez**, no momento do cadastro inicial. Atualizações posteriores não acionam nova validação.
+**Importante:** A validação ocorre **apenas uma vez**, no momento do cadastro inicial. Atualizações posteriores não acionam nova validação.
 
 ### Por Que é Chamada?
 
-#### 🎯 Objetivo Principal
+#### Objetivo Principal
 Garantir que **apenas estudantes com email institucional válido** possam se cadastrar no sistema UniBus, cumprindo os requisitos do projeto universitário.
 
-#### 📋 Critérios de Validação
+#### Critérios de Validação
 
 A validation-api verifica:
 
@@ -239,7 +239,7 @@ A validation-api verifica:
 2. **Matrícula Válida**: O campo `registration` (mapeado do campo `city`) deve ter:
    - Pelo menos **6 caracteres**
 
-#### ✅ Exemplos de Emails Válidos
+#### Exemplos de Emails Válidos
 ```
 ✓ maria@aluno.puc-rio.br
 ✓ joao@aluno.ufrj.br
@@ -247,7 +247,7 @@ A validation-api verifica:
 ✓ ana@estudante.edu.br
 ```
 
-#### ❌ Exemplos de Emails Inválidos
+#### Exemplos de Emails Inválidos
 ```
 ✗ joao@gmail.com          → Não é institucional
 ✗ maria@hotmail.com       → Não é institucional
@@ -304,7 +304,7 @@ ou
 
 ### Tratamento de Erros e Fallback
 
-#### 🔄 Estratégia de Fallback
+#### Estratégia de Fallback
 
 Se a **validation-api estiver indisponível** (timeout, connection error, 5xx), o UniBus Core API implementa uma estratégia de fallback:
 
@@ -314,7 +314,7 @@ Validation API Offline → Aceita Estudante por Padrão → HTTP 201 Created
 
 **Motivo:** Garantir disponibilidade do sistema mesmo quando a API secundária estiver fora do ar.
 
-#### 📊 Comportamento por Cenário
+#### Comportamento por Cenário
 
 | Cenário | Validation API Status | Core API Comportamento | HTTP Response |
 |---------|----------------------|------------------------|---------------|
@@ -489,7 +489,7 @@ curl http://localhost:8001/health
 
 ---
 
-## 🌐 API Pública de Terceiros: ViaCEP
+##API Pública de Terceiros: ViaCEP
 
 ### Visão Geral
 
@@ -677,7 +677,7 @@ curl -X POST "http://localhost:8000/students" \
 | ViaCEP offline/indisponível | Rejeita cadastro | `400 Bad Request` |
 | CEP com formato inválido | Rejeita antes de chamar API | `422 Unprocessable Entity` |
 
-**⚠️ Importante:** Diferente da Validation-API (que tem fallback), a **ViaCEP não possui fallback**. Se a API estiver indisponível, o cadastro é rejeitado, pois a localização é considerada **informação crítica** para o sistema UniBus.
+**Importante:** Diferente da Validation-API (que tem fallback), a **ViaCEP não possui fallback**. Se a API estiver indisponível, o cadastro é rejeitado, pois a localização é considerada **informação crítica** para o sistema UniBus.
 
 ### Implementação Técnica
 
@@ -752,10 +752,10 @@ Durante o planejamento do MVP, outras opções foram avaliadas:
 
 ### Recursos Adicionais
 
-- 📖 **Documentação oficial:** https://viacep.com.br/
-- 🐙 **Repositório GitHub:** https://github.com/IgorHalfeld/viacep
-- 📊 **Status da API:** Sem página oficial de status
-- 💬 **Suporte:** Comunidade via GitHub Issues
+- **Documentação oficial:** https://viacep.com.br/
+- **Repositório GitHub:** https://github.com/IgorHalfeld/viacep
+- **Status da API:** Sem página oficial de status
+- **Suporte:** Comunidade via GitHub Issues
 
 ---
 
@@ -790,7 +790,7 @@ Durante o planejamento do MVP, outras opções foram avaliadas:
 
 **Total:** 18 endpoints REST implementados
 
-## 🚀 Instalação e Configuração
+## Instalação e Configuração
 
 ### Desenvolvimento Local
 
@@ -862,7 +862,7 @@ uvicorn app.main:app --reload --port 8000
 - **Health Check:** http://localhost:8000/health
 - **PostgreSQL:** localhost:5433 (user: unibus_user, pass: unibus_pass, db: unibus_db)
 
-### 🐳 Deploy com Docker
+### Deploy com Docker
 
 **Opção 1: Docker Compose (Recomendado)**
 
@@ -906,7 +906,7 @@ docker logs -f unibus-core
 docker stop unibus-core && docker rm unibus-core
 ```
 
-## ⚙️ Variáveis de Ambiente
+## Variáveis de Ambiente
 
 | Variável | Descrição | Padrão |
 |----------|-----------|--------|
@@ -925,7 +925,7 @@ docker stop unibus-core && docker rm unibus-core
 | `POSTGRES_DB` | `unibus_db` | Nome do banco |
 | Porta | `5433:5432` | Porta mapeada (5433 no host → 5432 no container) |
 
-## 📋 Regras de Negócio
+## Regras de Negócio
 
 ### Criação de Estudantes
 
@@ -1075,7 +1075,7 @@ Use o script fornecido para testar todos os endpoints:
 python test_api.py
 ```
 
-## 🗄️ Banco de Dados
+## Banco de Dados
 
 A aplicação usa **PostgreSQL 15** para persistência robusta e escalável. O banco roda em container Docker com volume persistente.
 
@@ -1169,7 +1169,7 @@ for table in inspector.get_table_names():
 - User: `unibus_user`
 - Password: `unibus_pass`
 
-## 🧪 Testes
+## Testes
 
 ### Documentação Interativa
 
@@ -1212,7 +1212,7 @@ pip install pytest pytest-asyncio httpx
 pytest tests/ -v
 ```
 
-## 🛠️ Notas de Desenvolvimento
+## Notas de Desenvolvimento
 
 ### Configuração CORS
 
@@ -1270,7 +1270,7 @@ engine = create_engine(
 )
 ```
 
-## 🚀 Considerações para Produção
+## Considerações para Produção
 
 ### 1. Banco de Dados
 
@@ -1355,11 +1355,11 @@ services:
 - **Pre-commit hooks:** Validar antes de commit
 - **Documentação:** Manter README atualizado
 
-## 📝 Licença
+## Licença
 
 MIT License - Veja arquivo LICENSE para detalhes.
 
-## 👥 Contribuindo
+## Contribuindo
 
 Contribuições são bem-vindas! Por favor:
 
@@ -1369,13 +1369,13 @@ Contribuições são bem-vindas! Por favor:
 4. Push para a branch (`git push origin feature/AmazingFeature`)
 5. Abra um Pull Request
 
-## ❓ Suporte
+## Suporte
 
 Para questões e problemas:
 - Abra uma issue no repositório: <https://github.com/oondels/unibus-core-api/issues>
 - Consulte a documentação interativa: <http://localhost:8000/docs>
 
-## 🚀 Próximos Passos
+## Próximos Passos
 
 - [ ] Implementar testes unitários e de integração
 - [ ] Adicionar autenticação JWT
