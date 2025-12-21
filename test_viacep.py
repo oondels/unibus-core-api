@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Script de teste para validar integração ViaCEP
 """

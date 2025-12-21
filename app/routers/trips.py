@@ -24,7 +24,7 @@ def get_trip(trip_id: int, db: Session = Depends(get_db)):
     if not trip:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trip with id {trip_id} not found",
+            detail=f"Viagem com ID {trip_id} não encontrada",
         )
     return trip
 
@@ -37,7 +37,7 @@ def create_trip(trip: TripCreate, db: Session = Depends(get_db)):
     if not route:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Route with id {trip.route_id} not found",
+            detail=f"Rota com ID {trip.route_id} não encontrada",
         )
 
     # Calcula o horário de chegada com base na duração estimada da rota
@@ -66,7 +66,7 @@ def update_trip(trip_id: int, trip: TripUpdate, db: Session = Depends(get_db)):
     if not db_trip:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trip with id {trip_id} not found",
+            detail=f"Viagem com ID {trip_id} não encontrada",
         )
 
     # Atualiza apenas os campos fornecidos
@@ -93,7 +93,7 @@ def delete_trip(trip_id: int, db: Session = Depends(get_db)):
     if not db_trip:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Trip with id {trip_id} not found",
+            detail=f"Viagem com ID {trip_id} não encontrada",
         )
 
     db.delete(db_trip)

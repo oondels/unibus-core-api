@@ -421,8 +421,20 @@ O **UniBus Core API** integra-se com a **ViaCEP** - uma API **pública e gratuit
 
 **URL da API:** https://viacep.com.br/
 
-**Licença:** Gratuita e de uso livre  
-**Documentação oficial:** https://viacep.com.br/
+### Licença e Acesso
+
+- **Licença:** Pública e **totalmente gratuita** - sem custos de uso
+- **Cadastro/API Key:** **Não requer cadastro** - acesso direto e livre
+- **Documentação oficial:** https://viacep.com.br/
+- **Código fonte:** Projeto de código aberto mantido pela comunidade
+
+A ViaCEP é um serviço público que pode ser utilizado livremente por qualquer desenvolvedor ou aplicação, sem necessidade de registro, autenticação ou chaves de API. Ideal para MVPs e projetos universitários.
+
+### Arquitetura do Sistema
+
+![Arquitetura do Sistema](./arquitetura.png)
+
+> **Nota:** Diagrama de arquitetura mostrando a integração entre o UniBus Core API, ViaCEP, Student Validation API e PostgreSQL. *(Requisito obrigatório do MVP)*
 
 ### Por Que é Usada?
 

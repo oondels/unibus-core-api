@@ -23,7 +23,7 @@ def get_route(route_id: int, db: Session = Depends(get_db)):
     if not route:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Route with id {route_id} not found",
+            detail=f"Rota com ID {route_id} não encontrada",
         )
     return route
 
@@ -55,7 +55,7 @@ def update_route(
     if not db_route:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Route with id {route_id} not found",
+            detail=f"Rota com ID {route_id} não encontrada",
         )
 
     # Atualiza campos básicos
@@ -76,7 +76,7 @@ def delete_route(route_id: int, db: Session = Depends(get_db)):
     if not db_route:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Route with id {route_id} not found",
+            detail=f"Rota com ID {route_id} não encontrada",
         )
 
     db.delete(db_route)

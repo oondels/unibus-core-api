@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Quick test script for UniBus Core API
 Run this with the server running: python test_api.py

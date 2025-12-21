@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from typing import List
+from typing import List, Optional
+from datetime import date
 
 from app.db import get_db
 from app.models import Student
@@ -12,9 +13,29 @@ router = APIRouter(prefix="/students", tags=["students"])
 
 
 @router.get("/", response_model=List[StudentResponse])
-def get_students(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Busca todos estudantes com paginação"""
-    students = db.query(Student).offset(skip).limit(limit).all()
+def get_students(
+    skip: int = 0,
+    limit: int = 100,
+    city: Optional[str] = Query(None, description="Filtrar por cidade"),
+    created_at: Optional[date] = Query(None, description="Filtrar por data de criação (formato: YYYY-MM-DD)"),
+    db: Session = Depends(get_db)
+):
+    """Busca todos estudantes com paginação e filtros opcionais por cidade e data de criação"""
+    query = db.query(Student)
+    
+    # Aplica filtro de cidade se fornecido
+    if city:
+        query = query.filter(Student.city.ilike(f"%{city}%"))
+    
+    # Aplica filtro de data de criação se fornecido
+    if created_at:
+        # Filtra estudantes criados na data especificada
+        from datetime import datetime, timedelta
+        start_of_day = datetime.combine(created_at, datetime.min.time())
+        end_of_day = start_of_day + timedelta(days=1)
+        query = query.filter(Student.created_at >= start_of_day, Student.created_at < end_of_day)
+    
+    students = query.offset(skip).limit(limit).all()
     return students
 
 
@@ -25,7 +46,7 @@ def get_student(student_id: int, db: Session = Depends(get_db)):
     if not student:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Student with id {student_id} not found",
+            detail=f"Estudante com ID {student_id} não encontrado",
         )
     return student
 
@@ -40,7 +61,7 @@ async def create_student(student: StudentCreate, db: Session = Depends(get_db)):
     if not cep_result["is_valid"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid CEP: {cep_result['reason']}",
+            detail=f"CEP inválido: {cep_result['reason']}",
         )
     
     # 2. Valida o estudante via API externa (usando CEP como registration)
@@ -52,7 +73,7 @@ async def create_student(student: StudentCreate, db: Session = Depends(get_db)):
     if not validation_result["is_valid"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Student validation failed: {validation_result['reason']}",
+            detail=f"Validação do estudante falhou: {validation_result['reason']}",
         )
     
     # 3. Cria o estudante no banco com dados do ViaCEP
@@ -73,7 +94,7 @@ async def create_student(student: StudentCreate, db: Session = Depends(get_db)):
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Student with email {student.email} already exists",
+            detail=f"Estudante com email {student.email} já existe",
         )
 
 
@@ -86,7 +107,7 @@ async def update_student(
     if not db_student:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Student with id {student_id} not found",
+            detail=f"Estudante com ID {student_id} não encontrado",
         )
 
     # Valida o CEP usando ViaCEP
@@ -95,7 +116,7 @@ async def update_student(
     if not cep_result["is_valid"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid CEP: {cep_result['reason']}",
+            detail=f"CEP inválido: {cep_result['reason']}",
         )
 
     # Atualiza os campos
@@ -113,7 +134,7 @@ async def update_student(
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Student with email {student.email} already exists",
+            detail=f"Estudante com email {student.email} já existe",
         )
 
 
@@ -124,7 +145,7 @@ def delete_student(student_id: int, db: Session = Depends(get_db)):
     if not db_student:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Student with id {student_id} not found",
+            detail=f"Estudante com ID {student_id} não encontrado",
         )
 
     db.delete(db_student)
